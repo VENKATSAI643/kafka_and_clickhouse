@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────
+#  .gitignore — Kafka → ClickHouse Pipeline
+# ─────────────────────────────────────────────────────────────
+
+# ── Secrets & environment ──────────────────────────────────────
+.env
+.env.*
+!.env.example          # always commit the example template
+
+# ── Python virtual environments ────────────────────────────────
+.venv/
+venv/
+env/
+.kafka_and_clickhouse/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# ── Dead-letter / runtime data files ──────────────────────────
+producer/failed_messages.jsonl
+**/failed_messages.jsonl
+*.jsonl
+
+# ── ClickHouse persistent data (Docker volume mount if local) ──
+clickhouse/data/
+clickhouse/logs/
+
+# ── Findings / session output (optional — remove if you want them) ──
+# findings/
+
+# ── Docker ────────────────────────────────────────────────────
+.dockerignore
+
+# ── IDE & OS artefacts ────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Temporary / scratch ────────────────────────────────────────
+*.tmp
+*.bak
+tmp/
+scratch/

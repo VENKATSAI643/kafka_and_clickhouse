@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────
+#  Shared Python environment — Kafka → ClickHouse Pipeline
+#  Covers: producer, anomaly_consumer, manual_consumer
+# ─────────────────────────────────────────────────────────────
+#
+#  IMPORTANT (WSL/Linux): confluent-kafka is a C extension.
+#  Before running `pip install`, install the system build deps:
+#
+#    sudo apt update && sudo apt install -y librdkafka-dev python3-dev gcc
+#
+# ─────────────────────────────────────────────────────────────
+
+# Kafka client (C-backed, wraps librdkafka)
+# Use >= to allow pip to pick a wheel compatible with your Python version
+confluent-kafka>=2.3.0,<3.0.0
+
+# HTTP — CoinGecko API + ClickHouse HTTP interface
+requests==2.31.0
+
+# Environment variable loading from .env
+python-dotenv==1.0.0

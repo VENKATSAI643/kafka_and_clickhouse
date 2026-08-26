@@ -1,0 +1,135 @@
+# ─────────────────────────────────────────────
+#  Kafka → ClickHouse Real-Time Pipeline Stack
+# ─────────────────────────────────────────────
+
+services:
+
+  # ── Zookeeper ──────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka Broker ───────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "29092:29092"   # host-accessible listener
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 4
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "kafka:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── Topic Initialiser (one-shot) ───────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      echo 'Creating topic crypto_prices ...'
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists --topic crypto_prices --partitions 4 --replication-factor 1 --config retention.ms=86400000 --config cleanup.policy=delete
+      echo 'Topic created.'
+      kafka-topics --bootstrap-server kafka:9092 --describe --topic crypto_prices
+    restart: "no"
+
+  # ── ClickHouse ─────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8
+    container_name: clickhouse
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native TCP
+    volumes:
+      - ./clickhouse/config:/etc/clickhouse-server/config.d
+      - clickhouse_data:/var/lib/clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Python Producer ────────────────────────
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: producer
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BROKER: ${KAFKA_BROKER:-kafka:9092}
+      POLL_INTERVAL_SEC: ${POLL_INTERVAL_SEC:-3}
+      COINS: ${COINS:-bitcoin,ethereum,solana,binancecoin}
+    # NOTE: failed_messages.jsonl is pre-created inside the image (Dockerfile: RUN touch).
+    # We do NOT bind-mount it from the host — WSL file bind-mounts break on Docker Desktop restart.
+
+  # ── Python Anomaly Consumer ─────────────────
+  anomaly_consumer:
+    build:
+      context: ./anomaly
+      dockerfile: Dockerfile
+    container_name: anomaly_consumer
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BROKER: ${KAFKA_BROKER:-kafka:9092}
+      KAFKA_TOPIC: ${KAFKA_TOPIC:-crypto_prices}
+      CONSUMER_GROUP: ${ANOMALY_CONSUMER_GROUP:-anomaly-detector}
+      Z_SCORE_THRESHOLD: ${Z_SCORE_THRESHOLD:-2.5}
+      ROLLING_WINDOW: ${ROLLING_WINDOW:-30}
+      CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-clickhouse}
+      CLICKHOUSE_PORT: ${CLICKHOUSE_HTTP_PORT:-8123}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
+
+# ── Volumes ────────────────────────────────────
+volumes:
+  clickhouse_data:
+    driver: local
