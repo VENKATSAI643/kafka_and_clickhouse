@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<!--
+  ClickHouse network configuration override.
+  Mounted at /etc/clickhouse-server/config.d/network.xml
+
+  Overrides listen_host so ClickHouse binds to all IPv4 interfaces,
+  making port 8123 (HTTP) and 9000 (native) reachable from sibling
+  Docker containers by service name (e.g. http://clickhouse:8123/).
+
+  listen_try=1 tells ClickHouse to continue even if one address fails
+  to bind (e.g. if IPv6 is unavailable).
+-->
+<clickhouse>
+    <listen_host>0.0.0.0</listen_host>
+    <listen_try>1</listen_try>
+</clickhouse>

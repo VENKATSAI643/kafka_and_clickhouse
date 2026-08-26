@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS price_anomalies
     z_score      Float64,
     window_mean  Float64,
     window_std   Float64,
-    event_ts     DateTime,
+    event_ts     DateTime64(3),
     detected_at  DateTime64(3)
 )
 ENGINE = MergeTree()
@@ -72,21 +72,30 @@ ORDER BY (coin, event_ts)
 
 
 def ensure_anomaly_table(session: requests.Session) -> None:
-    """Create the price_anomalies table in ClickHouse if it doesn't exist."""
-    try:
-        resp = session.post(
-            CLICKHOUSE_URL,
-            params={"database": CLICKHOUSE_DB},
-            data=ANOMALY_TABLE_DDL.encode(),
-            timeout=15,
-        )
-        if resp.status_code == 200:
-            logger.info("Anomaly table ready in ClickHouse.")
-        else:
-            logger.warning("Could not create anomaly table: %s — %s",
-                           resp.status_code, resp.text[:200])
-    except requests.exceptions.RequestException as exc:
-        logger.warning("ClickHouse unreachable during table setup: %s", exc)
+    """Create the price_anomalies table in ClickHouse if it doesn't exist.
+    Retries up to 10 times with 3-second backoff — ClickHouse may still be
+    warming up when this container starts.
+    """
+    for attempt in range(1, 11):
+        try:
+            resp = session.post(
+                CLICKHOUSE_URL,
+                params={"database": CLICKHOUSE_DB},
+                data=ANOMALY_TABLE_DDL.encode(),
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                logger.info("Anomaly table ready in ClickHouse.")
+                return
+            else:
+                logger.warning("Could not create anomaly table (attempt %d): %s — %s",
+                               attempt, resp.status_code, resp.text[:200])
+        except requests.exceptions.RequestException as exc:
+            logger.warning("ClickHouse unreachable during table setup (attempt %d/10): %s",
+                           attempt, exc)
+        time.sleep(3)
+    logger.error("Gave up waiting for ClickHouse after 10 attempts. "
+                 "Anomalies will be detected but NOT persisted.")
 
 
 # ──────────────────────────────────────────────────────────────

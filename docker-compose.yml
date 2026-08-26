@@ -119,6 +119,8 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
     environment:
       KAFKA_BROKER: ${KAFKA_BROKER:-kafka:9092}
       KAFKA_TOPIC: ${KAFKA_TOPIC:-crypto_prices}
