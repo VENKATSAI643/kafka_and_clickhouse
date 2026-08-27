@@ -101,6 +101,15 @@ def ensure_anomaly_table(session: requests.Session) -> None:
 # ──────────────────────────────────────────────────────────────
 #  Insert anomaly into ClickHouse
 # ──────────────────────────────────────────────────────────────
+def _ch_datetime(ts: str) -> str:
+    """Strip the trailing 'Z' UTC suffix from an ISO-8601 timestamp.
+
+    ClickHouse DateTime64 JSONEachRow parser accepts 'YYYY-MM-DDTHH:MM:SS[.fff]'
+    but rejects the 'Z' suffix that Python / CoinGecko commonly append.
+    """
+    return ts.rstrip("Z")
+
+
 def persist_anomaly(
     session: requests.Session,
     coin: str,
@@ -121,7 +130,7 @@ def persist_anomaly(
         "z_score":     round(z, 4),
         "window_mean": round(mean, 4),
         "window_std":  round(std, 4),
-        "event_ts":    event_ts,
+        "event_ts":    _ch_datetime(event_ts),   # strip trailing 'Z'
         "detected_at": detected_at,
     }
     query = f"INSERT INTO {CLICKHOUSE_DB}.price_anomalies FORMAT JSONEachRow"

@@ -35,7 +35,9 @@ logger = logging.getLogger("producer")
 
 KAFKA_BROKER      = os.getenv("KAFKA_BROKER", "kafka:9092")
 KAFKA_TOPIC       = os.getenv("KAFKA_TOPIC", "crypto_prices")
-POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "3"))
+# CoinGecko free tier: ~10-30 req/min. Default 10 s ≈ 6 req/min — well under limit.
+# Set POLL_INTERVAL_SEC=3 only if you have a CoinGecko Pro API key.
+POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "10"))
 COINS             = os.getenv("COINS", "bitcoin,ethereum,solana,binancecoin").split(",")
 
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
@@ -213,10 +215,11 @@ def main():
     logger.info("  Coins:         %s", COINS)
     logger.info("  Poll interval: %ds", POLL_INTERVAL_SEC)
 
-    producer  = create_producer()
-    session   = requests.Session()
+    producer   = create_producer()
+    session    = requests.Session()
     poll_count = 0
     stats      = defaultdict(int)   # {"bitcoin": message_count, ...}
+    _last_data: dict | None = None  # cache of last successful CoinGecko response
 
     try:
         while True:
@@ -224,9 +227,21 @@ def main():
 
             # 1. Fetch prices from CoinGecko
             data = fetch_prices(session)
+
             if data is None:
-                logger.error("Skipping this poll cycle — no data.")
-            else:
+                if _last_data is not None:
+                    # ── Rate-limited: publish last known prices rather than
+                    #    dropping the cycle. Downstream consumers keep running;
+                    #    stale prices are expected during API outages.
+                    logger.warning(
+                        "[STALE] CoinGecko unavailable — republishing last known prices."
+                    )
+                    data = _last_data
+                else:
+                    logger.error("Skipping this poll cycle — no data and no cache yet.")
+
+            if data is not None:
+                _last_data = data          # update cache on every successful fetch
                 messages = build_messages(data)
 
                 # 2. Publish each coin message
