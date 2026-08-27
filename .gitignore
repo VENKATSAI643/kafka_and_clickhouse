@@ -4,8 +4,6 @@
 
 # ── Secrets & environment ──────────────────────────────────────
 .env
-.env.*
-!.env.example          # always commit the example template
 
 # ── Python virtual environments ────────────────────────────────
 .venv/
